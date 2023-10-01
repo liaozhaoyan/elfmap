@@ -16,8 +16,14 @@ dependencies = {
 
 }
 external_dependencies = {
-    INOTIFY = {
-        header = {"elf.h", "sys/mman.h", "sys/stat.h"}
+    ELF = {
+        header = "elf.h"
+    },
+    SYS_MMAN = {
+        header = "sys/mman.h"
+    },
+    SYS_STAT = {
+        header = "sys/stat.h"
     }
 }
 build = {
