@@ -38,6 +38,7 @@ end
 ```
 
 * count: Gets the number of all symbols in the ELF file.
+* item: Gets the array members based on the subscript.
 * symbol: Gets the address offset of the specified symbol
 
 ```

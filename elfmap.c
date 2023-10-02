@@ -66,6 +66,25 @@ static int count(lua_State *L) {
     return 1;
 }
 
+static int item(lua_State *L) {
+    struct elf_symbol *priv = (struct elf_symbol *)luaL_checkudata(L, 1, MT_NAME);
+    luaL_argcheck(L, priv != NULL, 1, "`array' expected");
+    int count = priv->start;
+    int i = luaL_checknumber(L, 2);
+
+    if (i > 0 && i <=count) {
+        priv += i;
+        lua_pushstring(L, priv->sym);
+        lua_pushnumber(L, priv->start);
+        lua_pushnumber(L, priv->end);
+    } else {
+        lua_pushstring(L, "[unknown]");
+        lua_pushnumber(L, -1);
+        lua_pushnumber(L, -1);
+    }
+    return 3;
+}
+
 static int query(lua_State *L) {
     struct elf_symbol *priv = (struct elf_symbol *)luaL_checkudata(L, 1, MT_NAME);
     luaL_argcheck(L, priv != NULL, 1, "`array' expected");
@@ -226,6 +245,7 @@ static int new(lua_State *L) {
 
 static luaL_Reg module_m[] = {
         {"maps", maps},
+        {"item", item},
         {"count", count},
         {"query", query},
         {"symbol", symbol},
@@ -247,6 +267,7 @@ int luaopen_elfmap(lua_State *L) {
     luaL_register(L, NULL, module_m);
 #endif
     lua_setfield(L, -2, "__index");
+
     lua_pop(L, 1);
 
 #if LUA_VERSION_NUM > 501
