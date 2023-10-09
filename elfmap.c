@@ -16,9 +16,15 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 
+struct elf_info {
+    off_t bias;
+    int symtabs;
+    int dynsyms;
+};
+
 #define MT_NAME "ELFMAP_HANDLE"
 
-#define SYMBOL_LEN  32
+#define SYMBOL_LEN  48
 struct elf_symbol{
     off_t start;
     off_t end;
@@ -149,29 +155,46 @@ static off_t get_elf_size(int elf_file_fd) {
     return file_stats.st_size;
 }
 
-//Walk all symbol
-static int n_symbol(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr) {
-    Elf64_Sym *symtab = NULL;
-    int i, j;
+static int elf_sym_count(char *addr, Elf64_Shdr *shdr, int index) {
+    int j;
     int count = 0;
+    Elf64_Sym *symtab = symtab = (Elf64_Sym *) (addr + shdr[index].sh_offset);
+    int sym_link_idx = shdr[index].sh_link;
+    int num_syms = shdr[index].sh_size / sizeof(Elf64_Sym);
+    char *sym_name_offset = addr + shdr[sym_link_idx].sh_offset;
 
-    for (i = 0; i < ehdr->e_shnum; i++) {
-        if (shdr[i].sh_type != SHT_SYMTAB)
-            continue;
-
-        symtab = (Elf64_Sym *) (addr + shdr[i].sh_offset);
-        int sym_link_idx = shdr[i].sh_link;
-        int num_syms = shdr[i].sh_size / sizeof(Elf64_Sym);
-        char *sym_name_offset = addr + shdr[sym_link_idx].sh_offset;
-
-        for (j = 0; j < num_syms; j++) {
-            if (ELF64_ST_TYPE(symtab[j].st_info) == 2
-                && symtab[j].st_size > 0) {
-                count ++;
-            }
+    for (j = 0; j < num_syms; j++) {
+        if (ELF64_ST_TYPE(symtab[j].st_info) == 2  //func
+            && symtab[j].st_size > 0) {
+            count ++;
         }
     }
     return count;
+}
+
+//Walk all symbol
+static int n_symbol(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct elf_info* info) {
+    Elf64_Sym *symtab = NULL;
+    int i;
+
+    for (i = 0; i < ehdr->e_shnum; i ++) {
+        switch (shdr[i].sh_type) {
+            case SHT_SYMTAB:
+                info->symtabs = elf_sym_count(addr, shdr, i);
+                break;
+            case SHT_DYNSYM:
+                info->dynsyms = elf_sym_count(addr, shdr, i);
+                break;
+            case SHT_PROGBITS:
+                if (info->bias == 0 && (info->dynsyms > 0 ||info->symtabs > 0)) {
+                    info->bias = (off_t)(shdr[i].sh_addr - shdr[i].sh_offset);
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    return 0;
 }
 
 static int sort_symbol(const void *a, const void * b) {
@@ -181,12 +204,15 @@ static int sort_symbol(const void *a, const void * b) {
 }
 
 //load all symbol
-static void load_symbol(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct elf_symbol *priv) {
+static void load_symbol(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr,
+                        struct elf_symbol *priv, struct elf_info *info) {
     Elf64_Sym *symtab = NULL;
     int i, j;
+    int sh_type = info->symtabs > 0 ? SHT_SYMTAB : SHT_DYNSYM;
+    off_t bias = info->symtabs > 0 ? 0 : info->bias;
 
     for (i = 0; i < ehdr->e_shnum; i++) {
-        if (shdr[i].sh_type != SHT_SYMTAB)
+        if (shdr[i].sh_type != sh_type)
             continue;
 
         symtab = (Elf64_Sym *) (addr + shdr[i].sh_offset);
@@ -197,8 +223,8 @@ static void load_symbol(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct e
         for (j = 0; j < num_syms; j++) {
             if (ELF64_ST_TYPE(symtab[j].st_info) == 2
                 && symtab[j].st_size > 0) {
-                strncpy(priv->sym, sym_name_offset + symtab[j].st_name, SYMBOL_LEN);
-                priv->start = symtab[j].st_value;
+                strncpy(priv->sym, sym_name_offset + symtab[j].st_name, SYMBOL_LEN - 1);
+                priv->start = symtab[j].st_value - bias;
                 priv->end = priv->start + symtab[j].st_size;
                 priv ++;
             }
@@ -215,6 +241,7 @@ static int new(lua_State *L) {
     Elf64_Shdr *shdr;
     int count;
     struct elf_symbol *priv;
+    struct elf_info info = {0, 0, 0};
 
     if (elf_file_fd < 0) {
         luaL_error(L, "open file %s failed, errno:%d, %s\n", fPath, errno, strerror(errno));
@@ -228,15 +255,18 @@ static int new(lua_State *L) {
     ehdr = (Elf64_Ehdr*)addr;
     shdr = (Elf64_Shdr *)(addr + ehdr->e_shoff);
 
-    count = n_symbol(addr, ehdr, shdr) + 1;
-    priv = (struct elf_symbol *)lua_newuserdata(L, sizeof(struct elf_symbol) * count);
-    priv->start = count;   // region 0 to record count of symbols.
-    priv->end = 0;
+    n_symbol(addr, ehdr, shdr, &info);
+    count = info.symtabs > 0 ? info.symtabs : info.dynsyms;
+
+    priv = (struct elf_symbol *)lua_newuserdata(L, sizeof(struct elf_symbol) * (count + 1));
+    priv->start = count;   // region 0 to record count of symbols and offset.
+    priv->end = info.bias;
     priv->sym[0] = '\0';
-    load_symbol(addr, ehdr, shdr, priv + 1);
+
+    load_symbol(addr, ehdr, shdr, priv + 1, &info);
     munmap(addr, file_size);
     close(elf_file_fd);
-    qsort(priv + 1, count - 1, sizeof(struct elf_symbol), sort_symbol);
+    qsort(priv + 1, count, sizeof(struct elf_symbol), sort_symbol);
 
     luaL_getmetatable(L, MT_NAME);
     lua_setmetatable(L, -2);
