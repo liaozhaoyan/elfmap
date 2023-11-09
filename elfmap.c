@@ -192,49 +192,57 @@ static int elf_sym_count32(char *addr, Elf32_Shdr *shdr, int index) {
 //Walk all symbol
 static int n_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct elf_info* info) {
     Elf64_Sym *symtab = NULL;
-    int i;
+    int i, set = 0;
 
     for (i = 0; i < ehdr->e_shnum; i ++) {
         switch (shdr[i].sh_type) {
             case SHT_SYMTAB:
                 info->symtabs = elf_sym_count64(addr, shdr, i);
+                set = 1;
                 break;
             case SHT_DYNSYM:
                 info->dynsyms = elf_sym_count64(addr, shdr, i);
+                set = 1;
                 break;
             case SHT_PROGBITS:
-                if (info->bias == 0 && (info->dynsyms > 0 ||info->symtabs > 0)) {
+                if (set > 0 && (info->dynsyms > 0 ||info->symtabs > 0)) {
                     info->bias = (off_t)(shdr[i].sh_addr - shdr[i].sh_offset);
+                    goto setn_symbol64;
                 }
                 break;
             default:
                 break;
         }
     }
+    setn_symbol64:
     return 0;
 }
 
 static int n_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr, struct elf_info* info) {
     Elf32_Sym *symtab = NULL;
-    int i;
+    int i, set = 0;
 
     for (i = 0; i < ehdr->e_shnum; i ++) {
         switch (shdr[i].sh_type) {
             case SHT_SYMTAB:
                 info->symtabs = elf_sym_count32(addr, shdr, i);
+                set = 1;
                 break;
             case SHT_DYNSYM:
                 info->dynsyms = elf_sym_count32(addr, shdr, i);
+                set = 1;
                 break;
             case SHT_PROGBITS:
-                if (info->bias == 0 && (info->dynsyms > 0 ||info->symtabs > 0)) {
+                if (set > 0 && (info->dynsyms > 0 ||info->symtabs > 0)) {
                     info->bias = (off_t)(shdr[i].sh_addr - shdr[i].sh_offset);
+                    goto setn_symbol32;
                 }
                 break;
             default:
                 break;
         }
     }
+    setn_symbol32:
     return 0;
 }
 
