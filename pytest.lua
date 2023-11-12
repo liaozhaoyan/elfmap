@@ -7,12 +7,12 @@
 package.cpath = "./?.so"
 local elfmap = require("elfmap")
 
-local m = elfmap.new("/usr/lib64/libpython2.7.so.1.0")
+local m = elfmap.new("/lib64/libpthread-2.17.so")
 --local m = elfmap.new("/usr/bin/python2.7")
+print(m:count())
 
 for _, start, stop, symbol in m:maps() do
     print(string.format("symbol%s: 0x%x, 0x%x", symbol, start, stop))
-    break
 end
 
 

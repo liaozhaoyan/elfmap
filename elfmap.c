@@ -200,10 +200,10 @@ static int n_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct elf
                 info->symtabs = elf_sym_count64(addr, shdr, i);
                 set = 1;
                 break;
-            case SHT_DYNSYM:
-                info->dynsyms = elf_sym_count64(addr, shdr, i);
-                set = 1;
-                break;
+//            case SHT_DYNSYM:
+//                info->dynsyms = elf_sym_count64(addr, shdr, i);
+//                set = 1;
+//                break;
             case SHT_PROGBITS:
                 if (set > 0 && (info->dynsyms > 0 ||info->symtabs > 0)) {
                     info->bias = (off_t)(shdr[i].sh_addr - shdr[i].sh_offset);
@@ -228,10 +228,10 @@ static int n_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr, struct elf
                 info->symtabs = elf_sym_count32(addr, shdr, i);
                 set = 1;
                 break;
-            case SHT_DYNSYM:
-                info->dynsyms = elf_sym_count32(addr, shdr, i);
-                set = 1;
-                break;
+//            case SHT_DYNSYM:
+//                info->dynsyms = elf_sym_count32(addr, shdr, i);
+//                set = 1;
+//                break;
             case SHT_PROGBITS:
                 if (set > 0 && (info->dynsyms > 0 ||info->symtabs > 0)) {
                     info->bias = (off_t)(shdr[i].sh_addr - shdr[i].sh_offset);
@@ -266,6 +266,7 @@ static void load_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr,
         for (j = 0; j < num_syms; j++) {
             if (ELF64_ST_TYPE(symtab[j].st_info) == 2
                 && symtab[j].st_size > 0) {
+
                 strncpy(priv->sym, sym_name_offset + symtab[j].st_name, SYMBOL_LEN - 1);
                 priv->start = symtab[j].st_value - bias;
                 priv->end = priv->start + symtab[j].st_size;
