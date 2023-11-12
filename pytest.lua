@@ -7,7 +7,7 @@
 package.cpath = "./?.so"
 local elfmap = require("elfmap")
 
-local m = elfmap.new("/lib64/libpthread-2.17.so")
+local m = elfmap.new("/usr/local/cloudmonitor/bin/argusagent")
 --local m = elfmap.new("/usr/bin/python2.7")
 print(m:count())
 

@@ -24,7 +24,7 @@ struct elf_info {
 
 #define MT_NAME "ELFMAP_HANDLE"
 
-#define SYMBOL_LEN  48
+#define SYMBOL_LEN  64
 struct elf_symbol{
     off_t start;
     off_t end;
@@ -189,6 +189,22 @@ static int elf_sym_count32(char *addr, Elf32_Shdr *shdr, int index) {
     return count;
 }
 
+static Elf64_Addr elf64_bias(char* addr, Elf64_Ehdr *ehdr) {
+    int i;
+    Elf64_Addr bias = 0;
+    Elf64_Phdr *phdr;
+
+    phdr = (Elf64_Phdr *)(addr + ehdr->e_phoff);
+    for (i = 0; i < ehdr->e_phnum; i ++) {
+        if (phdr->p_type == PT_LOAD) {
+            bias = phdr->p_vaddr;
+            break;
+        }
+        phdr ++;
+    }
+    return bias;
+}
+
 //Walk all symbol
 static int n_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct elf_info* info) {
     Elf64_Sym *symtab = NULL;
@@ -200,13 +216,8 @@ static int n_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct elf
                 info->symtabs = elf_sym_count64(addr, shdr, i);
                 set = 1;
                 break;
-//            case SHT_DYNSYM:
-//                info->dynsyms = elf_sym_count64(addr, shdr, i);
-//                set = 1;
-//                break;
             case SHT_PROGBITS:
                 if (set > 0 && (info->dynsyms > 0 ||info->symtabs > 0)) {
-                    info->bias = (off_t)(shdr[i].sh_addr - shdr[i].sh_offset);
                     goto setn_symbol64;
                 }
                 break;
@@ -215,7 +226,24 @@ static int n_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct elf
         }
     }
     setn_symbol64:
+    info->bias = elf64_bias(addr, ehdr);
     return 0;
+}
+
+static Elf32_Addr elf32_bias(char* addr, Elf32_Ehdr *ehdr) {
+    int i;
+    Elf32_Addr bias = 0;
+    Elf32_Phdr *phdr;
+
+    phdr = (Elf32_Phdr *)(addr + ehdr->e_phoff);
+    for (i = 0; i < ehdr->e_phnum; i ++) {
+        if (phdr->p_type == PT_LOAD) {
+            bias = phdr->p_vaddr;
+            break;
+        }
+        phdr ++;
+    }
+    return bias;
 }
 
 static int n_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr, struct elf_info* info) {
@@ -228,13 +256,8 @@ static int n_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr, struct elf
                 info->symtabs = elf_sym_count32(addr, shdr, i);
                 set = 1;
                 break;
-//            case SHT_DYNSYM:
-//                info->dynsyms = elf_sym_count32(addr, shdr, i);
-//                set = 1;
-//                break;
             case SHT_PROGBITS:
                 if (set > 0 && (info->dynsyms > 0 ||info->symtabs > 0)) {
-                    info->bias = (off_t)(shdr[i].sh_addr - shdr[i].sh_offset);
                     goto setn_symbol32;
                 }
                 break;
@@ -243,6 +266,7 @@ static int n_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr, struct elf
         }
     }
     setn_symbol32:
+    info->bias = elf32_bias(addr, ehdr);
     return 0;
 }
 
@@ -306,13 +330,22 @@ static void load_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr,
 
 static struct elf_symbol * elf64(lua_State *L, char *addr) {
     Elf64_Ehdr *ehdr;
+    Elf64_Phdr *phdr;
     Elf64_Shdr *shdr;
-    int count;
+    int i, count;
     struct elf_symbol *priv;
     struct elf_info info = {0, 0, 0};
 
     ehdr = (Elf64_Ehdr*)addr;
+    phdr = (Elf64_Phdr *)(addr + ehdr->e_phoff);
     shdr = (Elf64_Shdr *)(addr + ehdr->e_shoff);
+
+    for (i = 0; i < ehdr->e_phnum; i ++) {
+        if (phdr->p_type == PT_LOAD) {
+            printf("PT_LOAD: 0x%lx\n", phdr->p_vaddr);
+        }
+        phdr ++;
+    }
 
     n_symbol64(addr, ehdr, shdr, &info);
     count = info.symtabs > 0 ? info.symtabs : info.dynsyms;
