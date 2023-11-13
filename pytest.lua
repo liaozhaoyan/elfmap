@@ -13,6 +13,8 @@ print(m:count())
 
 for _, start, stop, symbol in m:maps() do
     print(string.format("symbol%s: 0x%x, 0x%x", symbol, start, stop))
+    break
 end
+print(m:query(0x35f0d8))
 
 

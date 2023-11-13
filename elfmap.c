@@ -276,7 +276,7 @@ static void load_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr,
     Elf64_Sym *symtab = NULL;
     int i, j;
     int sh_type = info->symtabs > 0 ? SHT_SYMTAB : SHT_DYNSYM;
-    off_t bias = info->symtabs > 0 ? 0 : info->bias;
+    off_t bias = info->bias;
 
     for (i = 0; i < ehdr->e_shnum; i++) {
         if (shdr[i].sh_type != sh_type)
@@ -305,7 +305,7 @@ static void load_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr,
     Elf32_Sym *symtab = NULL;
     int i, j;
     int sh_type = info->symtabs > 0 ? SHT_SYMTAB : SHT_DYNSYM;
-    off_t bias = info->symtabs > 0 ? 0 : info->bias;
+    off_t bias = info->bias;
 
     for (i = 0; i < ehdr->e_shnum; i++) {
         if (shdr[i].sh_type != sh_type)
@@ -330,22 +330,13 @@ static void load_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr,
 
 static struct elf_symbol * elf64(lua_State *L, char *addr) {
     Elf64_Ehdr *ehdr;
-    Elf64_Phdr *phdr;
     Elf64_Shdr *shdr;
     int i, count;
     struct elf_symbol *priv;
     struct elf_info info = {0, 0, 0};
 
     ehdr = (Elf64_Ehdr*)addr;
-    phdr = (Elf64_Phdr *)(addr + ehdr->e_phoff);
     shdr = (Elf64_Shdr *)(addr + ehdr->e_shoff);
-
-    for (i = 0; i < ehdr->e_phnum; i ++) {
-        if (phdr->p_type == PT_LOAD) {
-            printf("PT_LOAD: 0x%lx\n", phdr->p_vaddr);
-        }
-        phdr ++;
-    }
 
     n_symbol64(addr, ehdr, shdr, &info);
     count = info.symtabs > 0 ? info.symtabs : info.dynsyms;
