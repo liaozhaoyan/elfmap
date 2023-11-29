@@ -214,10 +214,18 @@ static int n_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct elf
         switch (shdr[i].sh_type) {
             case SHT_SYMTAB:
                 info->symtabs = elf_sym_count64(addr, shdr, i);
-                set = 1;
+                if (info->symtabs > 0) {
+                    set = 1;
+                }
+                break;
+            case SHT_DYNSYM:
+                info->dynsyms = elf_sym_count64(addr, shdr, i);
+                if (info->dynsyms > 0) {
+                    set = 1;
+                }
                 break;
             case SHT_PROGBITS:
-                if (set > 0 && (info->dynsyms > 0 ||info->symtabs > 0)) {
+                if (set > 0) {
                     goto setn_symbol64;
                 }
                 break;
@@ -254,10 +262,18 @@ static int n_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr, struct elf
         switch (shdr[i].sh_type) {
             case SHT_SYMTAB:
                 info->symtabs = elf_sym_count32(addr, shdr, i);
-                set = 1;
+                if (info->symtabs > 0) {
+                    set = 1;
+                }
+                break;
+            case SHT_DYNSYM:
+                info->dynsyms = elf_sym_count32(addr, shdr, i);
+                if (info->dynsyms > 0) {
+                    set = 1;
+                }
                 break;
             case SHT_PROGBITS:
-                if (set > 0 && (info->dynsyms > 0 ||info->symtabs > 0)) {
+                if (set > 0) {
                     goto setn_symbol32;
                 }
                 break;
@@ -290,7 +306,6 @@ static void load_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr,
         for (j = 0; j < num_syms; j++) {
             if (ELF64_ST_TYPE(symtab[j].st_info) == 2
                 && symtab[j].st_size > 0) {
-
                 strncpy(priv->sym, sym_name_offset + symtab[j].st_name, SYMBOL_LEN - 1);
                 priv->start = symtab[j].st_value - bias;
                 priv->end = priv->start + symtab[j].st_size;
