@@ -34,18 +34,20 @@ struct elf_symbol{
 static int handle_map_iterator(lua_State *L) {
     int val = lua_tonumber(L, lua_upvalueindex(1));
     int top = lua_tonumber(L, lua_upvalueindex(2));
-    struct elf_symbol *priv = lua_touserdata(L, lua_upvalueindex(3));
+    int bias = lua_tonumber(L, lua_upvalueindex(3));
+    struct elf_symbol *priv = lua_touserdata(L, lua_upvalueindex(4));
 
     if (val < top ) {
         priv += val + 1;   // index start at 1.
         val ++;
         lua_pushnumber(L, val); /* new value */
         lua_pushvalue(L, -1); /* duplicate it */
-        lua_replace(L,lua_upvalueindex(1)); /*updateupvalue*/
+        lua_replace(L, lua_upvalueindex(1)); /*updateupvalue*/
 
-        lua_pushnumber(L, priv->start); /* start */
-        lua_pushnumber(L, priv->end); /* end */
+        lua_pushnumber(L, priv->start + bias); /* start */
+        lua_pushnumber(L, priv->end + bias); /* end */
         lua_pushstring(L, priv->sym); /* symbol */
+
         return 4; /* return new value */
     }
     return 0;
@@ -57,8 +59,9 @@ static int maps(lua_State *L) {
 
     lua_pushnumber(L, 0);   // index.
     lua_pushnumber(L, priv->start);   // max index.
+    lua_pushnumber(L, priv->end);     // bias
     lua_pushlightuserdata(L, priv);   // base point frame.
-    lua_pushcclosure(L, &handle_map_iterator, 3);
+    lua_pushcclosure(L, &handle_map_iterator, 4);
     return 1;
 }
 
@@ -96,8 +99,10 @@ static int query(lua_State *L) {
     luaL_argcheck(L, priv != NULL, 1, "`array' expected");
     off_t addr = luaL_checknumber(L, 2);
     int count = priv->start;
+    int bias = priv->end;
     priv ++;   // index start at 1. need to add one.
     int left = 0, right = count - 1, mid;
+    addr += bias;  //
 
     while (left <= right) {
         struct elf_symbol *var;
@@ -222,6 +227,9 @@ static int n_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct elf
                 info->dynsyms = elf_sym_count64(addr, shdr, i);
                 if (info->dynsyms > 0) {
                     set = 1;
+                    info->bias = 0;
+//                    return 0;
+//                    printf("SHT_DYNSYM.\n");
                 }
                 break;
             case SHT_PROGBITS:
@@ -292,7 +300,6 @@ static void load_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr,
     Elf64_Sym *symtab = NULL;
     int i, j;
     int sh_type = info->symtabs > 0 ? SHT_SYMTAB : SHT_DYNSYM;
-    off_t bias = info->bias;
 
     for (i = 0; i < ehdr->e_shnum; i++) {
         if (shdr[i].sh_type != sh_type)
@@ -307,7 +314,7 @@ static void load_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr,
             if (ELF64_ST_TYPE(symtab[j].st_info) == 2
                 && symtab[j].st_size > 0) {
                 strncpy(priv->sym, sym_name_offset + symtab[j].st_name, SYMBOL_LEN - 1);
-                priv->start = symtab[j].st_value - bias;
+                priv->start = symtab[j].st_value;
                 priv->end = priv->start + symtab[j].st_size;
                 priv ++;
             }
@@ -320,7 +327,6 @@ static void load_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr,
     Elf32_Sym *symtab = NULL;
     int i, j;
     int sh_type = info->symtabs > 0 ? SHT_SYMTAB : SHT_DYNSYM;
-    off_t bias = info->bias;
 
     for (i = 0; i < ehdr->e_shnum; i++) {
         if (shdr[i].sh_type != sh_type)
@@ -335,7 +341,7 @@ static void load_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr,
             if (ELF32_ST_TYPE(symtab[j].st_info) == 2
                 && symtab[j].st_size > 0) {
                 strncpy(priv->sym, sym_name_offset + symtab[j].st_name, SYMBOL_LEN - 1);
-                priv->start = symtab[j].st_value - bias;
+                priv->start = symtab[j].st_value;
                 priv->end = priv->start + symtab[j].st_size;
                 priv ++;
             }
