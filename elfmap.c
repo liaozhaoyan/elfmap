@@ -24,7 +24,7 @@ struct elf_info {
 
 #define MT_NAME "ELFMAP_HANDLE"
 
-#define SYMBOL_LEN  64
+#define SYMBOL_LEN  112
 struct elf_symbol{
     off_t start;
     off_t end;
@@ -34,8 +34,7 @@ struct elf_symbol{
 static int handle_map_iterator(lua_State *L) {
     int val = lua_tonumber(L, lua_upvalueindex(1));
     int top = lua_tonumber(L, lua_upvalueindex(2));
-    int bias = lua_tonumber(L, lua_upvalueindex(3));
-    struct elf_symbol *priv = lua_touserdata(L, lua_upvalueindex(4));
+    struct elf_symbol *priv = lua_touserdata(L, lua_upvalueindex(3));
 
     if (val < top ) {
         priv += val + 1;   // index start at 1.
@@ -44,8 +43,8 @@ static int handle_map_iterator(lua_State *L) {
         lua_pushvalue(L, -1); /* duplicate it */
         lua_replace(L, lua_upvalueindex(1)); /*updateupvalue*/
 
-        lua_pushnumber(L, priv->start + bias); /* start */
-        lua_pushnumber(L, priv->end + bias); /* end */
+        lua_pushnumber(L, priv->start); /* start */
+        lua_pushnumber(L, priv->end); /* end */
         lua_pushstring(L, priv->sym); /* symbol */
 
         return 4; /* return new value */
@@ -59,9 +58,8 @@ static int maps(lua_State *L) {
 
     lua_pushnumber(L, 0);   // index.
     lua_pushnumber(L, priv->start);   // max index.
-    lua_pushnumber(L, priv->end);     // bias
     lua_pushlightuserdata(L, priv);   // base point frame.
-    lua_pushcclosure(L, &handle_map_iterator, 4);
+    lua_pushcclosure(L, &handle_map_iterator, 3);
     return 1;
 }
 
@@ -72,6 +70,16 @@ static int count(lua_State *L) {
 
     count = priv->start;
     lua_pushnumber(L, count);
+    return 1;
+}
+
+static int bias(lua_State *L) {
+    int bias;
+    struct elf_symbol *priv = (struct elf_symbol *)luaL_checkudata(L, 1, MT_NAME);
+    luaL_argcheck(L, priv != NULL, 1, "`array' expected");
+
+    bias = priv->end;
+    lua_pushnumber(L, bias);
     return 1;
 }
 
@@ -99,10 +107,8 @@ static int query(lua_State *L) {
     luaL_argcheck(L, priv != NULL, 1, "`array' expected");
     off_t addr = luaL_checknumber(L, 2);
     int count = priv->start;
-    int bias = priv->end;
     priv ++;   // index start at 1. need to add one.
     int left = 0, right = count - 1, mid;
-    addr += bias;  //
 
     while (left <= right) {
         struct elf_symbol *var;
@@ -228,8 +234,6 @@ static int n_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct elf
                 if (info->dynsyms > 0) {
                     set = 1;
                     info->bias = 0;
-//                    return 0;
-//                    printf("SHT_DYNSYM.\n");
                 }
                 break;
             case SHT_PROGBITS:
@@ -313,7 +317,7 @@ static void load_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr,
         for (j = 0; j < num_syms; j++) {
             if (ELF64_ST_TYPE(symtab[j].st_info) == 2
                 && symtab[j].st_size > 0) {
-                strncpy(priv->sym, sym_name_offset + symtab[j].st_name, SYMBOL_LEN - 1);
+                snprintf(priv->sym, SYMBOL_LEN, "%s", sym_name_offset + symtab[j].st_name);
                 priv->start = symtab[j].st_value;
                 priv->end = priv->start + symtab[j].st_size;
                 priv ++;
@@ -340,7 +344,7 @@ static void load_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr,
         for (j = 0; j < num_syms; j++) {
             if (ELF32_ST_TYPE(symtab[j].st_info) == 2
                 && symtab[j].st_size > 0) {
-                strncpy(priv->sym, sym_name_offset + symtab[j].st_name, SYMBOL_LEN - 1);
+                snprintf(priv->sym, SYMBOL_LEN, "%s", sym_name_offset + symtab[j].st_name);
                 priv->start = symtab[j].st_value;
                 priv->end = priv->start + symtab[j].st_size;
                 priv ++;
@@ -449,6 +453,7 @@ static luaL_Reg module_m[] = {
         {"maps", maps},
         {"item", item},
         {"count", count},
+        {"bias", bias},
         {"query", query},
         {"symbol", symbol},
         {NULL, NULL}
