@@ -7,7 +7,7 @@ CFLAGS ?= -O3
 all: elfmap.so
 
 %.o: %.c
-	$(CC) -c $(CFLAGS) -fPIC $(LUA_CFLAGS) -o $@ $<
+	$(CC) -c -g $(CFLAGS) -fPIC $(LUA_CFLAGS) -o $@ $<
 
 elfmap.so: elfmap.o
 	$(CC) -shared elfmap.o -o $@

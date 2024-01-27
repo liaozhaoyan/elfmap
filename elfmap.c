@@ -353,7 +353,7 @@ static void load_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr,
             if (ELF32_ST_TYPE(symtab[j].st_info) == 2
                 && symtab[j].st_size > 0) {
                 char *src = sym_name_offset + symtab[j].st_name;
-                int len = symtab[j].st_size + 1;
+                int len = strlen(src) + 1;
                 char *dst = malloc(len);
 
                 assert(dst != NULL);
@@ -406,7 +406,7 @@ static struct elf_symbol * elf32(lua_State *L, char *addr) {
     priv = (struct elf_symbol *)lua_newuserdata(L, sizeof(struct elf_symbol) * (count + 1));
     priv->start = count;   // region 0 to record count of symbols and offset.
     priv->end = info.bias;
-    priv->sym[0] = '\0';
+    priv->sym = NULL;
 
     load_symbol32(addr, ehdr, shdr, priv + 1, &info);
     return priv;
