@@ -1,5 +1,5 @@
 package = "elfmap"
-version = "1.0-12"
+version = "2.0-1"
 source = {
     url = "git://github.com/liaozhaoyan/elfmap",
 }

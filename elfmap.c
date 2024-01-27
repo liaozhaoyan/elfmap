@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <assert.h>
 
 struct elf_info {
     off_t bias;
@@ -28,7 +29,7 @@ struct elf_info {
 struct elf_symbol{
     off_t start;
     off_t end;
-    char sym[SYMBOL_LEN];
+    char* sym;
 };
 
 static int handle_map_iterator(lua_State *L) {
@@ -148,7 +149,7 @@ static int symbol(lua_State *L) {
     count = priv->start;
     priv ++;
     for (i = 0; i < count; i ++) {
-        if (strncasecmp(sym, priv->sym, SYMBOL_LEN) == 0) {
+        if (strcasecmp(sym, priv->sym) == 0) {
             start = priv->start;
             end   = priv->end;
         }
@@ -317,7 +318,14 @@ static void load_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr,
         for (j = 0; j < num_syms; j++) {
             if (ELF64_ST_TYPE(symtab[j].st_info) == 2
                 && symtab[j].st_size > 0) {
-                snprintf(priv->sym, SYMBOL_LEN, "%s", sym_name_offset + symtab[j].st_name);
+                char *src = sym_name_offset + symtab[j].st_name;
+                int len = strlen(src) + 1;
+                char *dst = malloc(len);
+
+                assert(dst != NULL);
+                strcpy(dst, src);
+
+                priv->sym = dst;
                 priv->start = symtab[j].st_value;
                 priv->end = priv->start + symtab[j].st_size;
                 priv ++;
@@ -344,7 +352,14 @@ static void load_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr,
         for (j = 0; j < num_syms; j++) {
             if (ELF32_ST_TYPE(symtab[j].st_info) == 2
                 && symtab[j].st_size > 0) {
-                snprintf(priv->sym, SYMBOL_LEN, "%s", sym_name_offset + symtab[j].st_name);
+                char *src = sym_name_offset + symtab[j].st_name;
+                int len = symtab[j].st_size + 1;
+                char *dst = malloc(len);
+
+                assert(dst != NULL);
+                strcpy(dst, src);
+
+                priv->sym = dst;
                 priv->start = symtab[j].st_value;
                 priv->end = priv->start + symtab[j].st_size;
                 priv ++;
@@ -369,7 +384,7 @@ static struct elf_symbol * elf64(lua_State *L, char *addr) {
     priv = (struct elf_symbol *)lua_newuserdata(L, sizeof(struct elf_symbol) * (count + 1));
     priv->start = count;   // region 0 to record count of symbols and offset.
     priv->end = info.bias;
-    priv->sym[0] = '\0';
+    priv->sym = NULL;
 
     load_symbol64(addr, ehdr, shdr, priv + 1, &info);
     return priv;
@@ -449,6 +464,21 @@ static int new(lua_State *L) {
     return 1;
 }
 
+static int gc(lua_State *L) {
+    int i, count;
+    struct elf_symbol *priv = (struct elf_symbol *)luaL_checkudata(L, 1, MT_NAME);
+    luaL_argcheck(L, priv != NULL, 1, "`array' expected");
+
+    count = priv->start;
+    priv ++;
+    for (i = 0; i < count; i ++) {
+        free(priv->sym);
+        priv->sym = NULL;
+        priv ++;
+    }
+    return 0;
+}
+
 static luaL_Reg module_m[] = {
         {"maps", maps},
         {"item", item},
@@ -474,6 +504,8 @@ int luaopen_elfmap(lua_State *L) {
     luaL_register(L, NULL, module_m);
 #endif
     lua_setfield(L, -2, "__index");
+    lua_pushcfunction(L, gc);
+    lua_setfield(L, -2, "__gc");
 
     lua_pop(L, 1);
 
