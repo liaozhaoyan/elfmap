@@ -15,11 +15,11 @@ local function getLibcPath()
     local res = cmd:read("*all")
     cmd:close()
 
-    local libs = pystring:split(res, "\n")
+    local libs = pystring.split(res, "\n")
     for _, lib in ipairs(libs) do
-        local info = pystring:strip(lib)
-        if pystring:startswith(info, "libc.so") then
-            local _, dst = unpack(pystring:split(info, " => "))
+        local info = pystring.strip(lib)
+        if pystring.startswith(info, "libc.so") then
+            local _, dst = unpack(pystring.split(info, " => "))
             return dst
         end
     end
@@ -39,3 +39,6 @@ local sym = m:query(start)
 assert(sym == "pthread_self")
 
 assert(m:query(0) == "[unknown]")
+
+m = elfmap.new("/lib64/libpthread.so")
+print(m:count())

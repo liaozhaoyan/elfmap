@@ -431,12 +431,13 @@ static int new(lua_State *L) {
     }
     file_size = get_elf_size(elf_file_fd);
     addr = (char *)mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, elf_file_fd, 0);
-    if (addr == NULL) {
+    if (addr == MAP_FAILED) {  // mmap failed will return MAP_FAILED, not NULL
         close(elf_file_fd);
         luaL_error(L, "mmap file %s failed, errno:%d, %s\n", fPath, errno, strerror(errno));
     }
 
     if (memcmp(addr, ELFMAG, SELFMAG) != 0) {
+        munmap(addr, file_size);
         close(elf_file_fd);
         luaL_error(L, "file %s is not a elf file.\n", fPath);
     }
@@ -449,6 +450,7 @@ static int new(lua_State *L) {
             priv = elf64(L, addr);
             break;
         default:
+            munmap(addr, file_size);
             close(elf_file_fd);
             luaL_error(L, "file %s is not a bad file.\n", fPath);
     }
