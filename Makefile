@@ -4,10 +4,10 @@ LUA_PC ?= lua$(LUA_VERSION)
 LUA_CFLAGS = $(shell pkg-config $(LUA_PC) --cflags)
 
 PREFIX ?= /usr/local
-LUA_LIB_DIR = $(PREFIX)/lib/lua/$(LUA_VERSION)
+LUA_LIB_DIR = $(PREFIX)/lib/lua/$(LUA_VERSION)/
 TARGET_LIB = elfmap.so
 
-CFLAGS ?= -O3
+CFLAGS ?= -O2
 
 all: $(TARGET_LIB)
 

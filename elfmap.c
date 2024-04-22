@@ -162,6 +162,28 @@ static int symbol(lua_State *L) {
     return 2;
 }
 
+static int elf_get_bias(Elf *elf, struct elf_info *info) {
+    size_t n;
+
+    if (elf_getphdrnum(elf, &n) != 0) {
+        return -1;
+    }
+
+    for (size_t i = 0; i < n; i++) {
+        GElf_Phdr phdr;
+        if (gelf_getphdr(elf, i, &phdr) != NULL) {
+            if (phdr.p_type == PT_LOAD && (phdr.p_flags & PF_X)) {
+                info->bias = phdr.p_vaddr;
+                return 0;
+            }
+        } else {
+            return -1;
+        }
+    }
+
+    return -1;
+}
+
 static int elf_sym_count64(Elf *elf, Elf_Scn *scn, GElf_Shdr *shdr) {
     Elf_Data *data;
     GElf_Sym sym;
@@ -203,12 +225,15 @@ static int elf_sym_count32(Elf *elf, Elf_Scn *scn, GElf_Shdr *shdr) {
 //Walk all symbol
 static int n_symbol64(Elf *elf, struct elf_info *info) {
     Elf_Scn *scn;
-    GElf_Phdr phdr;
     GElf_Shdr shdr;
-    size_t shnum, phnum;
-    int i, j;
+    size_t shnum;
+    int i;
 
-    if (elf_getshdrnum(elf, &shnum) != 0 || elf_getphdrnum(elf, &phnum) != 0) {
+    if (elf_get_bias(elf, info) < 0) {
+        return -1;
+    }
+
+    if (elf_getshdrnum(elf, &shnum) != 0) {
         return -1;
     }
 
@@ -216,25 +241,10 @@ static int n_symbol64(Elf *elf, struct elf_info *info) {
         scn = elf_getscn(elf, i);
         gelf_getshdr(scn, &shdr);
 
-        if (shdr.sh_type == SHT_SYMTAB || shdr.sh_type == SHT_DYNSYM) {
-            if (shdr.sh_type == SHT_SYMTAB) {
-                info->symtabs = elf_sym_count64(elf, scn, &shdr);
-            } else {
-                info->dynsyms = elf_sym_count64(elf, scn, &shdr);
-            }
-            for (j = 0; j < phnum; ++j) {
-                if (gelf_getphdr(elf, j, &phdr) != &phdr) {
-                    continue;
-                }
-
-                if (phdr.p_type == PT_LOAD) {
-                    if (shdr.sh_offset >= phdr.p_offset &&
-                        shdr.sh_offset < (phdr.p_offset + phdr.p_filesz)) {
-
-                        info->bias = phdr.p_vaddr;
-                    }
-                }
-            }
+        if (shdr.sh_type == SHT_SYMTAB) {
+            info->symtabs = elf_sym_count64(elf, scn, &shdr);
+        } else if (shdr.sh_type == SHT_DYNSYM) {
+            info->dynsyms = elf_sym_count64(elf, scn, &shdr);
         }
     }
     return 0;
@@ -242,39 +252,26 @@ static int n_symbol64(Elf *elf, struct elf_info *info) {
 
 static int n_symbol32(Elf *elf, struct elf_info *info) {
     Elf_Scn *scn;
-    GElf_Phdr phdr;
     GElf_Shdr shdr;
-    size_t shnum, phnum;
-    int i, j;
+    size_t shnum;
+    int i;
 
-    if (elf_getshdrnum(elf, &shnum) != 0 || elf_getphdrnum(elf, &phnum) != 0) {
+    if (elf_get_bias(elf, info) < 0) {
         return -1;
     }
 
-    for (i = 0; i < phnum; i ++) {   // get bias
+    if (elf_getshdrnum(elf, &shnum) != 0) {
+        return -1;
+    }
+
+    for (i = 0; i < shnum; i ++) {   // get bias
         scn = elf_getscn(elf, i);
         gelf_getshdr(scn, &shdr);
 
-        if (shdr.sh_type == SHT_SYMTAB || shdr.sh_type == SHT_DYNSYM) {
-            if (shdr.sh_type == SHT_SYMTAB) {
-                info->symtabs = elf_sym_count32(elf, scn, &shdr);
-            } else {
-                info->dynsyms = elf_sym_count32(elf, scn, &shdr);
-            }
-            for (j = 0; j < phnum; ++j) {
-                if (gelf_getphdr(elf, j, &phdr) != &phdr) {
-                    continue;
-                }
-
-                if (phdr.p_type == PT_LOAD) {
-                    if (shdr.sh_offset >= phdr.p_offset &&
-                        shdr.sh_offset < (phdr.p_offset + phdr.p_filesz)) {
-
-                        info->bias = phdr.p_vaddr;
-                        break;
-                    }
-                }
-            }
+        if (shdr.sh_type == SHT_SYMTAB) {
+            info->symtabs = elf_sym_count32(elf, scn, &shdr);
+        } else if (shdr.sh_type == SHT_DYNSYM) {
+            info->dynsyms = elf_sym_count32(elf, scn, &shdr);
         }
     }
     return 0;
