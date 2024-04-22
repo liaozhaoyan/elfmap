@@ -163,13 +163,13 @@ static int symbol(lua_State *L) {
 }
 
 static int elf_get_bias(Elf *elf, struct elf_info *info) {
-    size_t n;
+    size_t i, n;
 
     if (elf_getphdrnum(elf, &n) != 0) {
         return -1;
     }
 
-    for (size_t i = 0; i < n; i++) {
+    for (i = 0; i < n; i++) {
         GElf_Phdr phdr;
         if (gelf_getphdr(elf, i, &phdr) != NULL) {
             if (phdr.p_type == PT_LOAD && (phdr.p_flags & PF_X)) {
