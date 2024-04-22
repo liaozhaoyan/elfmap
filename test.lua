@@ -39,6 +39,3 @@ local sym = m:query(start)
 assert(sym == "pthread_self")
 
 assert(m:query(0) == "[unknown]")
-
-m = elfmap.new("/lib64/libpthread.so")
-print(m:count())

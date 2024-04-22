@@ -10,7 +10,7 @@ all: elfmap.so
 	$(CC) -c -g $(CFLAGS) -fPIC $(LUA_CFLAGS) -o $@ $<
 
 elfmap.so: elfmap.o
-	$(CC) -shared elfmap.o -o $@
+	$(CC) -shared elfmap.o -o $@ -lelf
 
 clean:
 	rm -f *.so *.o *.rock

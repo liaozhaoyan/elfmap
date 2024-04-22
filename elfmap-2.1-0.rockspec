@@ -1,5 +1,5 @@
 package = "elfmap"
-version = "2.0-2"
+version = "2.1-0"
 source = {
     url = "git://github.com/liaozhaoyan/elfmap",
 }
@@ -19,8 +19,12 @@ external_dependencies = {
     ELF = {
         header = "elf.h"
     },
-    SYS_MMAN = {
-        header = "sys/mman.h"
+    LIBELF = {
+        header = "libelf.h",
+        library = "elf"
+    },
+    GELF = {
+        header = "gelf.h"
     },
     SYS_STAT = {
         header = "sys/stat.h"

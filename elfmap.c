@@ -10,11 +10,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <fcntl.h>
 #include <errno.h>
-#include <unistd.h>
-#include <sys/mman.h>
+#include <elf.h>
+#include <fcntl.h>
+#include <libelf.h>
+#include <gelf.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <assert.h>
 
 struct elf_info {
@@ -160,255 +162,245 @@ static int symbol(lua_State *L) {
     return 2;
 }
 
-//Function to get the size of the ELF file
-static off_t get_elf_size(int elf_file_fd) {
-    struct stat file_stats;
-    fstat(elf_file_fd, &file_stats);
-    return file_stats.st_size;
-}
+static int elf_sym_count64(Elf *elf, Elf_Scn *scn, GElf_Shdr *shdr) {
+    Elf_Data *data;
+    GElf_Sym sym;
+    int symbols_count, i;
+    int ret = 0;
 
-static int elf_sym_count64(char *addr, Elf64_Shdr *shdr, int index) {
-    int j;
-    int count = 0;
-    Elf64_Sym *symtab = symtab = (Elf64_Sym *) (addr + shdr[index].sh_offset);
-    int sym_link_idx = shdr[index].sh_link;
-    int num_syms = shdr[index].sh_size / sizeof(Elf64_Sym);
-    char *sym_name_offset = addr + shdr[sym_link_idx].sh_offset;
+    data = elf_getdata(scn, NULL);
+    symbols_count = data->d_size / sizeof(GElf_Sym);
 
-    for (j = 0; j < num_syms; j++) {
-        if (ELF64_ST_TYPE(symtab[j].st_info) == 2  //func
-            && symtab[j].st_size > 0) {
-            count ++;
+    for (i = 0; i < symbols_count; i++) {
+        gelf_getsym(data, i, &sym);
+
+        if (ELF64_ST_TYPE(sym.st_info) == STT_FUNC && sym.st_shndx != SHN_UNDEF) {
+            ret ++;
         }
     }
-    return count;
+    return ret;
 }
 
-static int elf_sym_count32(char *addr, Elf32_Shdr *shdr, int index) {
-    int j;
-    int count = 0;
-    Elf32_Sym *symtab = symtab = (Elf32_Sym *) (addr + shdr[index].sh_offset);
-    int sym_link_idx = shdr[index].sh_link;
-    int num_syms = shdr[index].sh_size / sizeof(Elf32_Sym);
-    char *sym_name_offset = addr + shdr[sym_link_idx].sh_offset;
+static int elf_sym_count32(Elf *elf, Elf_Scn *scn, GElf_Shdr *shdr) {
+    Elf_Data *data;
+    GElf_Sym sym;
+    int symbols_count, i;
+    int ret = 0;
 
-    for (j = 0; j < num_syms; j++) {
-        if (ELF32_ST_TYPE(symtab[j].st_info) == 2  //func
-            && symtab[j].st_size > 0) {
-            count ++;
+    data = elf_getdata(scn, NULL);
+    symbols_count = data->d_size / sizeof(GElf_Sym);
+
+    for (i = 0; i < symbols_count; i++) {
+        gelf_getsym(data, i, &sym);
+
+        if (ELF32_ST_TYPE(sym.st_info) == STT_FUNC && sym.st_shndx != SHN_UNDEF) {
+            ret ++;
         }
     }
-    return count;
-}
-
-static Elf64_Addr elf64_bias(char* addr, Elf64_Ehdr *ehdr) {
-    int i;
-    Elf64_Addr bias = 0;
-    Elf64_Phdr *phdr;
-
-    phdr = (Elf64_Phdr *)(addr + ehdr->e_phoff);
-    for (i = 0; i < ehdr->e_phnum; i ++) {
-        if (phdr->p_type == PT_LOAD) {
-            bias = phdr->p_vaddr;
-            break;
-        }
-        phdr ++;
-    }
-    return bias;
+    return ret;
 }
 
 //Walk all symbol
-static int n_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr, struct elf_info* info) {
-    Elf64_Sym *symtab = NULL;
-    int i, set = 0;
+static int n_symbol64(Elf *elf, struct elf_info *info) {
+    Elf_Scn *scn;
+    GElf_Phdr phdr;
+    GElf_Shdr shdr;
+    size_t shnum, phnum;
+    int i, j;
 
-    for (i = 0; i < ehdr->e_shnum; i ++) {
-        switch (shdr[i].sh_type) {
-            case SHT_SYMTAB:
-                info->symtabs = elf_sym_count64(addr, shdr, i);
-                if (info->symtabs > 0) {
-                    set = 1;
+    if (elf_getshdrnum(elf, &shnum) != 0 || elf_getphdrnum(elf, &phnum) != 0) {
+        return -1;
+    }
+
+    for (i = 0; i < shnum; i ++) {   // get bias
+        scn = elf_getscn(elf, i);
+        gelf_getshdr(scn, &shdr);
+
+        if (shdr.sh_type == SHT_SYMTAB || shdr.sh_type == SHT_DYNSYM) {
+            if (shdr.sh_type == SHT_SYMTAB) {
+                info->symtabs = elf_sym_count64(elf, scn, &shdr);
+            } else {
+                info->dynsyms = elf_sym_count64(elf, scn, &shdr);
+            }
+            for (j = 0; j < phnum; ++j) {
+                if (gelf_getphdr(elf, j, &phdr) != &phdr) {
+                    continue;
                 }
-                break;
-            case SHT_DYNSYM:
-                info->dynsyms = elf_sym_count64(addr, shdr, i);
-                if (info->dynsyms > 0) {
-                    set = 1;
-                    info->bias = 0;
+
+                if (phdr.p_type == PT_LOAD) {
+                    if (shdr.sh_offset >= phdr.p_offset &&
+                        shdr.sh_offset < (phdr.p_offset + phdr.p_filesz)) {
+
+                        info->bias = phdr.p_vaddr;
+                    }
                 }
-                break;
-            case SHT_PROGBITS:
-                if (set > 0) {
-                    goto setn_symbol64;
-                }
-                break;
-            default:
-                break;
+            }
         }
     }
-    setn_symbol64:
-    info->bias = elf64_bias(addr, ehdr);
     return 0;
 }
 
-static Elf32_Addr elf32_bias(char* addr, Elf32_Ehdr *ehdr) {
-    int i;
-    Elf32_Addr bias = 0;
-    Elf32_Phdr *phdr;
+static int n_symbol32(Elf *elf, struct elf_info *info) {
+    Elf_Scn *scn;
+    GElf_Phdr phdr;
+    GElf_Shdr shdr;
+    size_t shnum, phnum;
+    int i, j;
 
-    phdr = (Elf32_Phdr *)(addr + ehdr->e_phoff);
-    for (i = 0; i < ehdr->e_phnum; i ++) {
-        if (phdr->p_type == PT_LOAD) {
-            bias = phdr->p_vaddr;
-            break;
-        }
-        phdr ++;
+    if (elf_getshdrnum(elf, &shnum) != 0 || elf_getphdrnum(elf, &phnum) != 0) {
+        return -1;
     }
-    return bias;
-}
 
-static int n_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr, struct elf_info* info) {
-    Elf32_Sym *symtab = NULL;
-    int i, set = 0;
+    for (i = 0; i < phnum; i ++) {   // get bias
+        scn = elf_getscn(elf, i);
+        gelf_getshdr(scn, &shdr);
 
-    for (i = 0; i < ehdr->e_shnum; i ++) {
-        switch (shdr[i].sh_type) {
-            case SHT_SYMTAB:
-                info->symtabs = elf_sym_count32(addr, shdr, i);
-                if (info->symtabs > 0) {
-                    set = 1;
+        if (shdr.sh_type == SHT_SYMTAB || shdr.sh_type == SHT_DYNSYM) {
+            if (shdr.sh_type == SHT_SYMTAB) {
+                info->symtabs = elf_sym_count32(elf, scn, &shdr);
+            } else {
+                info->dynsyms = elf_sym_count32(elf, scn, &shdr);
+            }
+            for (j = 0; j < phnum; ++j) {
+                if (gelf_getphdr(elf, j, &phdr) != &phdr) {
+                    continue;
                 }
-                break;
-            case SHT_DYNSYM:
-                info->dynsyms = elf_sym_count32(addr, shdr, i);
-                if (info->dynsyms > 0) {
-                    set = 1;
+
+                if (phdr.p_type == PT_LOAD) {
+                    if (shdr.sh_offset >= phdr.p_offset &&
+                        shdr.sh_offset < (phdr.p_offset + phdr.p_filesz)) {
+
+                        info->bias = phdr.p_vaddr;
+                        break;
+                    }
                 }
-                break;
-            case SHT_PROGBITS:
-                if (set > 0) {
-                    goto setn_symbol32;
-                }
-                break;
-            default:
-                break;
+            }
         }
     }
-    setn_symbol32:
-    info->bias = elf32_bias(addr, ehdr);
     return 0;
 }
 
 //load all symbol
-static void load_symbol64(char *addr, Elf64_Ehdr *ehdr, Elf64_Shdr *shdr,
-                        struct elf_symbol *priv, struct elf_info *info) {
-    Elf64_Sym *symtab = NULL;
-    int i, j;
+static int load_symbol64(Elf *elf, struct elf_symbol *priv, struct elf_info *info) {
     int sh_type = info->symtabs > 0 ? SHT_SYMTAB : SHT_DYNSYM;
+    GElf_Shdr shdr;
+    Elf_Scn *scn = NULL;
 
-    for (i = 0; i < ehdr->e_shnum; i++) {
-        if (shdr[i].sh_type != sh_type)
-            continue;
+    while ((scn = elf_nextscn(elf, scn)) != NULL) {
+        if (gelf_getshdr(scn, &shdr) != &shdr) {
+            return -1;
+        }
+        if (shdr.sh_type == sh_type) {
+            Elf_Data *data;
+            GElf_Sym sym;
+            int symbols_count, i;
+            char *sym_name;
 
-        symtab = (Elf64_Sym *) (addr + shdr[i].sh_offset);
-        int sym_link_idx = shdr[i].sh_link;
-        int num_syms = shdr[i].sh_size / sizeof(Elf64_Sym);
-        char *sym_name_offset = addr + shdr[sym_link_idx].sh_offset;
+            data = elf_getdata(scn, NULL);
+            symbols_count = data->d_size / sizeof(GElf_Sym);
 
-        for (j = 0; j < num_syms; j++) {
-            if (ELF64_ST_TYPE(symtab[j].st_info) == 2
-                && symtab[j].st_size > 0) {
-                char *src = sym_name_offset + symtab[j].st_name;
-                int len = strlen(src) + 1;
-                char *dst = malloc(len);
+            for (i = 0; i < symbols_count; i++) {
+                gelf_getsym(data, i, &sym);
+                if (ELF64_ST_TYPE(sym.st_info) == STT_FUNC && sym.st_shndx != SHN_UNDEF) {
+                    int len;
+                    char *dst;
+                    sym_name = elf_strptr(elf, shdr.sh_link, sym.st_name);
+                    len = strlen(sym_name) + 1;
+                    dst = malloc(len);
+                    assert(dst != NULL);
+                    strcpy(dst, sym_name);
 
-                assert(dst != NULL);
-                strcpy(dst, src);
-
-                priv->sym = dst;
-                priv->start = symtab[j].st_value;
-                priv->end = priv->start + symtab[j].st_size;
-                priv ++;
+                    priv->sym = dst;
+                    priv->start = sym.st_value;
+                    priv->end = priv->start + sym.st_size;
+                    priv ++;
+                }
             }
         }
     }
+    return 0;
 }
 
-static void load_symbol32(char *addr, Elf32_Ehdr *ehdr, Elf32_Shdr *shdr,
-                          struct elf_symbol *priv, struct elf_info *info) {
-    Elf32_Sym *symtab = NULL;
-    int i, j;
+static int load_symbol32(Elf *elf, struct elf_symbol *priv, struct elf_info *info) {
     int sh_type = info->symtabs > 0 ? SHT_SYMTAB : SHT_DYNSYM;
+    GElf_Shdr shdr;
+    Elf_Scn *scn = NULL;
 
-    for (i = 0; i < ehdr->e_shnum; i++) {
-        if (shdr[i].sh_type != sh_type)
-            continue;
+    while ((scn = elf_nextscn(elf, scn)) != NULL) {
+        if (gelf_getshdr(scn, &shdr) != &shdr) {
+            return -1;
+        }
+        if (shdr.sh_type == sh_type) {
+            Elf_Data *data;
+            GElf_Sym sym;
+            int symbols_count, i;
+            char *sym_name;
 
-        symtab = (Elf32_Sym *) (addr + shdr[i].sh_offset);
-        int sym_link_idx = shdr[i].sh_link;
-        int num_syms = shdr[i].sh_size / sizeof(Elf32_Sym);
-        char *sym_name_offset = addr + shdr[sym_link_idx].sh_offset;
+            data = elf_getdata(scn, NULL);
+            symbols_count = data->d_size / sizeof(GElf_Sym);
 
-        for (j = 0; j < num_syms; j++) {
-            if (ELF32_ST_TYPE(symtab[j].st_info) == 2
-                && symtab[j].st_size > 0) {
-                char *src = sym_name_offset + symtab[j].st_name;
-                int len = strlen(src) + 1;
-                char *dst = malloc(len);
+            for (i = 0; i < symbols_count; i++) {
+                gelf_getsym(data, i, &sym);
+                if (ELF32_ST_TYPE(sym.st_info) == STT_FUNC && sym.st_shndx != SHN_UNDEF) {
+                    int len;
+                    char *dst;
+                    sym_name = elf_strptr(elf, shdr.sh_link, sym.st_name);
+                    len = strlen(sym_name) + 1;
+                    dst = malloc(len);
+                    assert(dst != NULL);
+                    strcpy(dst, sym_name);
 
-                assert(dst != NULL);
-                strcpy(dst, src);
-
-                priv->sym = dst;
-                priv->start = symtab[j].st_value;
-                priv->end = priv->start + symtab[j].st_size;
-                priv ++;
+                    priv->sym = dst;
+                    priv->start = sym.st_value;
+                    priv->end = priv->start + sym.st_size;
+                    priv ++;
+                }
             }
+            break;
         }
     }
+    return 0;
 }
 
-static struct elf_symbol * elf64(lua_State *L, char *addr) {
-    Elf64_Ehdr *ehdr;
-    Elf64_Shdr *shdr;
-    int i, count;
-    struct elf_symbol *priv;
-    struct elf_info info = {0, 0, 0};
-
-    ehdr = (Elf64_Ehdr*)addr;
-    shdr = (Elf64_Shdr *)(addr + ehdr->e_shoff);
-
-    n_symbol64(addr, ehdr, shdr, &info);
-    count = info.symtabs > 0 ? info.symtabs : info.dynsyms;
-
-    priv = (struct elf_symbol *)lua_newuserdata(L, sizeof(struct elf_symbol) * (count + 1));
-    priv->start = count;   // region 0 to record count of symbols and offset.
-    priv->end = info.bias;
-    priv->sym = NULL;
-
-    load_symbol64(addr, ehdr, shdr, priv + 1, &info);
-    return priv;
-}
-
-static struct elf_symbol * elf32(lua_State *L, char *addr) {
-    Elf32_Ehdr *ehdr;
-    Elf32_Shdr *shdr;
+static struct elf_symbol * elf64(lua_State *L, Elf *elf) {
     int count;
     struct elf_symbol *priv;
     struct elf_info info = {0, 0, 0};
 
-    ehdr = (Elf32_Ehdr*)addr;
-    shdr = (Elf32_Shdr *)(addr + ehdr->e_shoff);
-
-    n_symbol32(addr, ehdr, shdr, &info);
-    count = info.symtabs > 0 ? info.symtabs : info.dynsyms;
+    if (n_symbol64(elf, &info) < 0 ) {
+        return NULL;
+    }
+    count = info.symtabs > 0 ? info.symtabs : info.dynsyms;  // symtabs first.
 
     priv = (struct elf_symbol *)lua_newuserdata(L, sizeof(struct elf_symbol) * (count + 1));
     priv->start = count;   // region 0 to record count of symbols and offset.
     priv->end = info.bias;
     priv->sym = NULL;
 
-    load_symbol32(addr, ehdr, shdr, priv + 1, &info);
+    if (load_symbol64(elf, priv + 1, &info) < 0 ) {
+        return NULL;
+    }
+    return priv;
+}
+
+static struct elf_symbol * elf32(lua_State *L, Elf *elf) {
+    int count;
+    struct elf_symbol *priv;
+    struct elf_info info = {0, 0, 0};
+
+    if (n_symbol32(elf, &info) < 0 ) {
+        return NULL;
+    }
+    count = info.symtabs > 0 ? info.symtabs : info.dynsyms;  // symtabs first.
+
+    priv = (struct elf_symbol *)lua_newuserdata(L, sizeof(struct elf_symbol) * (count + 1));
+    priv->start = count;   // region 0 to record count of symbols and offset.
+    priv->end = info.bias;
+    priv->sym = NULL;
+
+    if (load_symbol32(elf, priv + 1, &info) < 0 ) {
+        return NULL;
+    }
     return priv;
 }
 
@@ -420,42 +412,43 @@ static int sort_symbol(const void *a, const void * b) {
 
 static int new(lua_State *L) {
     const char *fPath = luaL_checkstring(L, 1);
-    int elf_file_fd = open(fPath, O_RDONLY);
-    off_t file_size;
-    size_t syms;
-    char *addr;
-    struct elf_symbol *priv;
+    Elf *elf;
+    GElf_Ehdr ehdr;
+    int elf_file_fd;
+    int syms = 0;
+    struct elf_symbol *priv = NULL;
 
+    if (elf_version(EV_CURRENT) == EV_NONE) {
+        luaL_error(L, "libelf version is too old");
+    }
+
+    elf_file_fd = open(fPath, O_RDONLY, 0);
     if (elf_file_fd < 0) {
         luaL_error(L, "open file %s failed, errno:%d, %s\n", fPath, errno, strerror(errno));
     }
-    file_size = get_elf_size(elf_file_fd);
-    addr = (char *)mmap(NULL, file_size, PROT_READ, MAP_PRIVATE, elf_file_fd, 0);
-    if (addr == MAP_FAILED) {  // mmap failed will return MAP_FAILED, not NULL
+
+    if ((elf = elf_begin(elf_file_fd, ELF_C_READ, NULL)) == NULL) {
         close(elf_file_fd);
-        luaL_error(L, "mmap file %s failed, errno:%d, %s\n", fPath, errno, strerror(errno));
+        luaL_error(L, "elf_begin failed");
     }
 
-    if (memcmp(addr, ELFMAG, SELFMAG) != 0) {
-        munmap(addr, file_size);
+    if (gelf_getehdr(elf, &ehdr) == NULL) {
+        elf_end(elf);
         close(elf_file_fd);
-        luaL_error(L, "file %s is not a elf file.\n", fPath);
+        luaL_error(L, "gelf_getehdr failed");
     }
 
-    switch (addr[4]) {
-        case 1:
-            priv = elf32(L, addr);
-            break;
-        case 2:
-            priv = elf64(L, addr);
-            break;
-        default:
-            munmap(addr, file_size);
-            close(elf_file_fd);
-            luaL_error(L, "file %s is not a bad file.\n", fPath);
+    if (ehdr.e_ident[EI_CLASS] == ELFCLASS32) {
+        priv = elf32(L, elf);
+    } else if (ehdr.e_ident[EI_CLASS] == ELFCLASS64) {
+        priv = elf64(L, elf);
+    } else {
+        elf_end(elf);
+        close(elf_file_fd);
+        luaL_error(L, "not support elf class");
     }
 
-    munmap(addr, file_size);
+    elf_end(elf);
     close(elf_file_fd);
 
     syms = priv->start;
