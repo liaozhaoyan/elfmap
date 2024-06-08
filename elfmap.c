@@ -172,7 +172,7 @@ static int elf_get_bias(Elf *elf, struct elf_info *info) {
     for (i = 0; i < n; i++) {
         GElf_Phdr phdr;
         if (gelf_getphdr(elf, i, &phdr) != NULL) {
-            if (phdr.p_type == PT_LOAD && (phdr.p_flags & PF_X)) {
+            if (phdr.p_type == PT_LOAD) {
                 info->bias = phdr.p_vaddr;
                 return 0;
             }
